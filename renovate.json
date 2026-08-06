@@ -1,0 +1,39 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:enableMajor",
+    "schedule:weekends",
+    ":separateMajorMinor",
+    ":automergeMinor"
+  ],
+  "enabledManagers": [
+    "dockerfile",
+    "github-actions",
+    "regex"
+  ],
+  "packageRules": [
+    {
+      "description": "Group all GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions"
+    },
+    {
+      "description": "Group all Docker base image updates",
+      "matchManagers": ["dockerfile"],
+      "groupName": "docker-base-images"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Track obs-mcp release versions from rhobs/obs-mcp",
+      "fileMatch": ["obs-mcp/Dockerfile"],
+      "matchStrings": [
+        "ARG OBS_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "rhobs/obs-mcp"
+    }
+  ]
+}

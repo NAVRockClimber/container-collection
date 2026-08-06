@@ -1,0 +1,130 @@
+name: build-push
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/Dockerfile"
+      - ".github/workflows/build-push.yaml"
+      - ".mega-linter.yml"
+  pull_request:
+    paths:
+      - "**/Dockerfile"
+      - ".github/workflows/build-push.yaml"
+      - ".mega-linter.yml"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Specific image directory to build (empty = all)"
+        required: false
+        type: string
+      push:
+        description: "Push to registry"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+  attestations: write
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: ${{ github.repository_owner }}
+
+jobs:
+  lint:
+    name: MegaLinter
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oxsecurity/megalinter/flavors/ci_light@v8
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build
+    needs: lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - obs-mcp
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value={{date 'YYYYMMDD-HHmmss'}},enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=,format=short
+            type=ref,event=pr
+
+      - name: Build and load for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image }}
+          load: true
+          platforms: linux/amd64
+          tags: ${{ matrix.image }}:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test
+        run: |
+          docker run -d --name mcp-test -p 8080:8080 ${{ matrix.image }}:ci-test \
+            --listen :8080 --toolsets observability/logs \
+            --loki-url http://localhost:9999
+          for i in $(seq 1 30); do
+            if curl -sf -X POST http://localhost:8080/mcp \
+              -H "Content-Type: application/json" \
+              -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' > /tmp/response.json; then
+              break
+            fi
+            sleep 1
+          done
+          jq -e '.result.tools | map(.name) | contains(["loki_label_names","loki_label_values","loki_query_range"])' /tmp/response.json
+          cat /tmp/response.json | jq '.result.tools[].name'
+          docker rm -f mcp-test
+
+      - name: Build and push multi-arch
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image }}
+          push: ${{ github.event_name != 'pull_request' }}
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Sign image with cosign
+        if: github.event_name != 'pull_request'
+        run: |
+          DIGEST=$(docker buildx imagetools inspect \
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest \
+            --format '{{json .Manifest.Digest}}' | tr -d '"')
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}@${DIGEST}

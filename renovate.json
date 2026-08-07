@@ -9,7 +9,7 @@
   "enabledManagers": [
     "dockerfile",
     "github-actions",
-    "regex"
+    "custom.regex"
   ],
   "packageRules": [
     {
@@ -27,7 +27,9 @@
     {
       "customType": "regex",
       "description": "Track obs-mcp release versions from rhobs/obs-mcp",
-      "fileMatch": ["obs-mcp/Dockerfile"],
+      "managerFilePatterns": [
+        "/obs-mcp/Dockerfile/"
+      ],
       "matchStrings": [
         "ARG OBS_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ],

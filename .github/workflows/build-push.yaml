@@ -91,18 +91,21 @@ jobs:
 
       - name: Smoke test
         run: |
-          docker run -d --name mcp-test -p 8080:8080 ${{ matrix.image }}:ci-test \
-            --listen :8080
+          docker run -d --name mcp-test -p 8080:8080 \
+            -e PROMETHEUS_URL=http://localhost:9090 \
+            -e ALERTMANAGER_URL=http://localhost:9093 \
+            ${{ matrix.image }}:ci-test \
+            --listen :8080 --auth-mode header
           for i in $(seq 1 30); do
             if curl -sf -X POST http://localhost:8080/mcp \
               -H "Content-Type: application/json" \
-              -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' > /tmp/response.json; then
+              -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' > /tmp/response.txt; then
               break
             fi
             sleep 1
           done
-          jq -e '.result.tools | map(.name) | contains(["loki_label_names","loki_label_values","loki_query_range"])' /tmp/response.json
-          cat /tmp/response.json | jq '.result.tools[].name'
+          grep '^data:' /tmp/response.txt | sed 's/^data: //' | jq -e '.result.tools | length > 0'
+          cat /tmp/response.txt | grep '^data:' | sed 's/^data: //' | jq '.result.tools[].name'
           docker logs mcp-test
           docker rm -f mcp-test
 

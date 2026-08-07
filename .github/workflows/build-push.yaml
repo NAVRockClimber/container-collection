@@ -3,15 +3,7 @@ name: build-push
 on:
   push:
     branches: [main]
-    paths:
-      - "**/Dockerfile"
-      - ".github/workflows/build-push.yaml"
-      - ".mega-linter.yml"
   pull_request:
-    paths:
-      - "**/Dockerfile"
-      - ".github/workflows/build-push.yaml"
-      - ".mega-linter.yml"
   workflow_dispatch:
     inputs:
       image:

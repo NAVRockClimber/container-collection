@@ -92,8 +92,7 @@ jobs:
       - name: Smoke test
         run: |
           docker run -d --name mcp-test -p 8080:8080 ${{ matrix.image }}:ci-test \
-            --listen :8080 --toolsets observability/logs \
-            --loki-url http://localhost:9999
+            --listen :8080
           for i in $(seq 1 30); do
             if curl -sf -X POST http://localhost:8080/mcp \
               -H "Content-Type: application/json" \
@@ -104,6 +103,7 @@ jobs:
           done
           jq -e '.result.tools | map(.name) | contains(["loki_label_names","loki_label_values","loki_query_range"])' /tmp/response.json
           cat /tmp/response.json | jq '.result.tools[].name'
+          docker logs mcp-test
           docker rm -f mcp-test
 
       - name: Build and push multi-arch

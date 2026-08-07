@@ -27,7 +27,6 @@ permissions:
   contents: read
   packages: write
   id-token: write
-  attestations: write
 
 env:
   REGISTRY: ghcr.io
@@ -122,12 +121,3 @@ jobs:
           cache-to: type=gha,mode=max
           provenance: true
           sbom: true
-
-      - name: Sign image with cosign
-        if: github.event_name != 'pull_request'
-        run: |
-          DIGEST=$(docker buildx imagetools inspect \
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest \
-            --format '{{json .Manifest.Digest}}' | tr -d '"')
-          cosign sign --yes \
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}@${DIGEST}

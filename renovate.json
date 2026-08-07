@@ -4,7 +4,6 @@
     "config:recommended",
     "docker:enableMajor",
     "schedule:weekends",
-    ":separateMajorMinor",
     ":automergeMinor"
   ],
   "enabledManagers": [

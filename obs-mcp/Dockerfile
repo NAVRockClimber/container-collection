@@ -13,6 +13,8 @@ RUN wget -qO /tmp/obs.tar.gz \
 FROM alpine:${ALPINE_VERSION}
 COPY --from=downloader /usr/local/bin/obs-mcp /usr/local/bin/obs-mcp
 USER 65532:65532
-ENTRYPOINT ["/usr/local/bin/obs-mcp"]
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD ["wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
+ENTRYPOINT ["/usr/local/bin/obs-mcp"]
 CMD ["--listen", ":8080"]

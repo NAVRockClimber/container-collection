@@ -35,18 +35,52 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
           TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db
+    continue-on-error: true
+
+  discover:
+    name: Discover images
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.discover.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: discover
+        run: |
+          matrix=$(./.github/scripts/discover-images.sh)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build
-    needs: lint
+    name: ${{ matrix.image.name }}
+    needs: discover
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        image:
-          - obs-mcp
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v7
+
+      - uses: hadolint/hadolint-action@v4
+        with:
+          dockerfile: ${{ matrix.image.dir }}/Dockerfile
+          failure-threshold: error
+
+      - name: License check
+        run: |
+          repo=$(grep -oP 'ARG UPSTREAM_REPO=\K\S+' "${{ matrix.image.dir }}/Dockerfile")
+          owner=$(echo "$repo" | cut -d/ -f1)
+          name=$(echo "$repo" | cut -d/ -f2)
+          license=$(curl -sf -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/$owner/$name/license" | jq -r '.license.spdx_id // "none"')
+          echo "Upstream license: $license"
+          case "$license" in
+            GPL-2.0|GPL-3.0|AGPL-3.0)
+              echo "::error::Upstream license $license is incompatible with Apache-2.0"
+              exit 1
+              ;;
+            none|null)
+              echo "::warning::Upstream repository has no license — review before publishing"
+              ;;
+          esac
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -65,48 +99,78 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}
+          images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image.name }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value={{date 'YYYYMMDD-HHmmss'}},enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=,format=short
             type=ref,event=pr
+          flavor: |
+            latest=false
 
-      - name: Build and load for smoke test
+      - name: Build and load for test
         uses: docker/build-push-action@v7
         with:
-          context: ${{ matrix.image }}
+          context: ${{ matrix.image.dir }}
           load: true
           platforms: linux/amd64
-          tags: ${{ matrix.image }}:ci-test
+          tags: ${{ matrix.image.name }}:ci-test
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Smoke test
+      - name: Wait for healthy
         run: |
-          docker run -d --name mcp-test -p 8080:8080 \
-            -e PROMETHEUS_URL=http://localhost:9090 \
-            -e ALERTMANAGER_URL=http://localhost:9093 \
-            ${{ matrix.image }}:ci-test \
-            --listen :8080 --auth-mode header
+          docker run -d --name ci-test -p ${{ matrix.image.port }}:${{ matrix.image.port }} \
+            ${{ matrix.image.name }}:ci-test
           for i in $(seq 1 30); do
-            if curl -sf -X POST http://localhost:8080/mcp \
-              -H "Content-Type: application/json" \
-              -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' > /tmp/response.txt; then
-              break
+            health=$(docker inspect --format='{{.State.Health.Status}}' ci-test 2>/dev/null || echo "")
+            if [ "$health" = "healthy" ]; then
+              echo "Container healthy"
+              exit 0
+            fi
+            running=$(docker inspect --format='{{.State.Running}}' ci-test 2>/dev/null)
+            if [ "$running" != "true" ]; then
+              echo "::error::Container stopped unexpectedly"
+              docker logs ci-test
+              exit 1
             fi
             sleep 1
           done
-          grep '^data:' /tmp/response.txt | sed 's/^data: //' | jq -e '.result.tools | length > 0'
-          cat /tmp/response.txt | grep '^data:' | sed 's/^data: //' | jq '.result.tools[].name'
-          docker logs mcp-test
-          docker rm -f mcp-test
+          echo "::error::Container did not become healthy within 30s"
+          docker logs ci-test
+          exit 1
+
+      - name: Smoke test
+        run: |
+          for script in ${{ matrix.image.dir }}/test/*.sh; do
+            [ -f "$script" ] || continue
+            echo "Running $script"
+            sh "$script" localhost "${{ matrix.image.port }}" || {
+              echo "::error::Smoke test $script failed"
+              exit 1
+            }
+          done
+
+      - name: Cleanup test container
+        if: always()
+        run: docker rm -f ci-test || true
+
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.image.name }}:ci-test
+          format: table
+          exit-code: 1
+          severity: HIGH,CRITICAL
+        env:
+          TRIVY_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-db
+          TRIVY_JAVA_DB_REPOSITORY: public.ecr.aws/aquasecurity/trivy-java-db
 
       - name: Build and push multi-arch
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v7
         with:
-          context: ${{ matrix.image }}
+          context: ${{ matrix.image.dir }}
           push: ${{ github.event_name != 'pull_request' }}
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}

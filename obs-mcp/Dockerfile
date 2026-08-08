@@ -20,4 +20,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD ["wget", "-q", "-O", "/dev/null", "--post-data={\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}", "--header=Content-Type: application/json", "http://localhost:8080/mcp"]
 ENTRYPOINT ["/usr/local/bin/obs-mcp"]
-CMD ["--listen", ":8080"]
+CMD ["--listen", ":8080", "--auth-mode", "header"]

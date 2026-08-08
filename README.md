@@ -1,19 +1,22 @@
 # container-collection
 
-Monorepo for custom multi-arch container images used in the Kubernetes cluster.
+Monorepo for custom multi-arch container images used in the Kubernetes cluster. Each image has its own README with usage details.
+
+> This repo is developed with AI assistance. Code and documentation may be AI-generated.
 
 ## Architecture
 
-- **Build**: Docker Buildx with QEMU for cross-platform builds
-- **Lint**: MegaLinter (Hadolint, YAML, shell, Markdown)
+- **Build**: Docker Buildx with QEMU for cross-platform builds (`linux/amd64`, `linux/arm64`)
+- **Lint**: MegaLinter for repo-level lint, Hadolint per image
+- **Scan**: Trivy CVE scanning per image
 - **Sign**: Cosign keyless signing via GitHub OIDC
-- **Update**: Renovate auto-updates base images, binaries, and actions
+- **Update**: Renovate auto-updates base images, upstream releases, and actions
 
 ## Images
 
-| Image | Path | Source | Version |
-|---|---|---|---|
-| [`ghcr.io/navrockclimber/obs-mcp`](https://github.com/NAVRockClimber/container-collection/pkgs/container/obs-mcp) | [`obs-mcp/`](obs-mcp/) | [rhobs/obs-mcp](https://github.com/rhobs/obs-mcp) | `0.7.1` |
+| Image | Path | Upstream |
+|---|---|---|
+| [obs-mcp](obs-mcp/) | [`obs-mcp/`](obs-mcp/) | [rhobs/obs-mcp](https://github.com/rhobs/obs-mcp) |
 
 ## Usage
 
@@ -25,24 +28,13 @@ Monorepo for custom multi-arch container images used in the Kubernetes cluster.
 
 ### Adding a new image
 
-1. Create `<name>/Dockerfile`
-2. Add ARG-based version parameters at the top
-3. Add a `customManagers` entry in `renovate.json` for binary tracking
-4. Update this README's image table
+1. Create `<name>/Dockerfile` with `ARG UPSTREAM_REPO`, `ARG UPSTREAM_VERSION`, and `ARG EXPOSE_PORT`
+2. Add `test/*.sh` scripts for smoke testing
+3. Add `<name>/README.md` (see [obs-mcp/README.md](obs-mcp/README.md) for the template)
+4. Update the images table above
 
-### Renovate
+No Renovate or workflow changes needed — CI discovers images automatically.
 
-Renovate watches:
-- `FROM alpine:X` in Dockerfiles → new Alpine releases
-- `ARG *_VERSION=X.Y.Z` in Dockerfiles → upstream GitHub releases
-- GitHub Actions versions in workflows
-- Renovate self-updates
+### Conventions
 
-Auto-merge is enabled for patch and minor updates that pass CI smoke tests.
-
-### Smoke Tests
-
-Every CI build runs a `tools/list` MCP JSON-RPC call against the built image to verify:
-- Binary starts correctly
-- MCP protocol responds
-- Expected tools are registered
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines and [AGENTS.md](AGENTS.md) for the full convention reference.

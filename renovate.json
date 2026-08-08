@@ -26,15 +26,17 @@
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Track obs-mcp release versions from rhobs/obs-mcp",
+      "description": "Track GitHub releases via ARG UPSTREAM_REPO/UPSTREAM_VERSION convention",
       "managerFilePatterns": [
-        "/obs-mcp/Dockerfile/"
+        "**/Dockerfile",
+        "**/Containerfile"
       ],
+      "matchStringsStrategy": "combination",
       "matchStrings": [
-        "ARG OBS_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+        "ARG UPSTREAM_REPO=(?<depName>\\S+)",
+        "ARG UPSTREAM_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"
       ],
-      "datasourceTemplate": "github-releases",
-      "depNameTemplate": "rhobs/obs-mcp"
+      "datasourceTemplate": "github-releases"
     }
   ]
 }

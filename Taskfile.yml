@@ -1,0 +1,121 @@
+version: "3"
+
+vars:
+  IMAGES:
+    sh: find . -maxdepth 2 -name Dockerfile | sed 's|/Dockerfile||; s|^\./||' | sort
+
+tasks:
+  lint:
+    desc: Run all linters
+    cmds:
+      - task: lint-dockerfile
+      - task: lint-shell
+      - task: lint-yaml
+
+  lint-dockerfile:
+    desc: Lint Dockerfiles with Hadolint
+    cmds:
+      - |
+        find . -name Dockerfile -type f | while read f; do
+          echo "=== $f ==="
+          docker run --rm -i hadolint/hadolint:latest < "$f"
+        done
+
+  lint-shell:
+    desc: Lint shell scripts with shellcheck
+    cmds:
+      - |
+        find . -name "*.sh" -type f | while read f; do
+          echo "=== $f ==="
+          docker run --rm -v "$PWD:/mnt" koalaman/shellcheck:latest "/mnt/$f"
+        done
+
+  lint-yaml:
+    desc: Lint YAML files with yamllint
+    cmds:
+      - |
+        find . \( -name "*.yml" -o -name "*.yaml" \) -type f | while read f; do
+          echo "=== $f ==="
+          docker run --rm -v "$PWD:/mnt" cytopia/yamllint:latest \
+            -c /mnt/.yamllint.yml "/mnt/$f"
+        done
+
+  build:
+    desc: Build images locally (task build -- <name>, or all)
+    cmds:
+      - |
+        targets="{{.CLI_ARGS}}"
+        [ -z "$targets" ] && targets="{{.IMAGES}}"
+        for img in $targets; do
+          echo "=== building $img ==="
+          docker build -t "$img:local" "$img"
+        done
+
+  scan:
+    desc: Trivy scan images for CVEs (task scan -- <name>, or all)
+    cmds:
+      - |
+        targets="{{.CLI_ARGS}}"
+        [ -z "$targets" ] && targets="{{.IMAGES}}"
+        for img in $targets; do
+          echo "=== scanning $img ==="
+          docker build -q -t "$img:ci-scan" "$img"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            aquasec/trivy image --severity HIGH,CRITICAL --exit-code 1 "$img:ci-scan"
+          docker rmi "$img:ci-scan" >/dev/null 2>&1
+        done
+
+  test:
+    desc: Build + smoke test images (task test -- <name>, or all)
+    cmds:
+      - docker rm -f ci-test >/dev/null 2>&1 || true
+      - |
+        targets="{{.CLI_ARGS}}"
+        [ -z "$targets" ] && targets="{{.IMAGES}}"
+        for img in $targets; do
+          echo "=== testing $img ==="
+          port=$(grep -oP 'ARG EXPOSE_PORT=\K\d+' "$img/Dockerfile" 2>/dev/null || echo 8080)
+          docker build -q -t "$img:ci-test" "$img"
+          env_opts=""
+          if [ -f "$img/test/env" ]; then
+            while IFS='=' read -r key value; do
+              [ -n "$key" ] && env_opts="$env_opts -e $key=$value"
+            done < "$img/test/env"
+          fi
+          health_fmt='{{"{{"}}.State.Health.Status{{"}}"}}'
+          running_fmt='{{"{{"}}.State.Running{{"}}"}}'
+          docker run -d --name ci-test -p "$port:$port" $env_opts "$img:ci-test"
+          for i in $(seq 1 30); do
+            health=$(docker inspect --format="$health_fmt" ci-test 2>/dev/null || echo "")
+            if [ "$health" = "healthy" ]; then break; fi
+            running=$(docker inspect --format="$running_fmt" ci-test 2>/dev/null)
+            if [ "$running" != "true" ]; then
+              echo "::error::container stopped"
+              docker logs ci-test
+              docker rm -f ci-test >/dev/null 2>&1
+              exit 1
+            fi
+            sleep 1
+          done
+          for script in "$img"/test/*.sh; do
+            [ -f "$script" ] || continue
+            echo "-- $script --"
+            sh "$script" localhost "$port" || {
+              docker rm -f ci-test >/dev/null 2>&1
+              exit 1
+            }
+          done
+          docker rm -f ci-test >/dev/null 2>&1
+          echo "  $img: OK"
+        done
+
+  clean:
+    desc: Remove local build artifacts and containers
+    cmds:
+      - docker rm -f ci-test >/dev/null 2>&1 || true
+      - |
+        targets="{{.CLI_ARGS}}"
+        [ -z "$targets" ] && targets="{{.IMAGES}}"
+        for img in $targets; do
+          docker rmi "$img:local" "$img:ci-test" "$img:ci-scan" >/dev/null 2>&1 || true
+        done

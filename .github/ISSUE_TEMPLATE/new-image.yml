@@ -1,0 +1,47 @@
+name: New image proposal
+description: Propose a new container image for the collection
+title: "[new-image] "
+labels: ["new-image"]
+body:
+  - type: input
+    id: image_name
+    attributes:
+      label: Image name
+      description: Directory name for the image (e.g. `matter-server`)
+    validations:
+      required: true
+  - type: input
+    id: upstream_repo
+    attributes:
+      label: Upstream repository
+      description: GitHub `owner/repo` (e.g. `home-assistant/core`)
+    validations:
+      required: true
+  - type: textarea
+    id: upstream_description
+    attributes:
+      label: Upstream description
+      description: One paragraph — what does the upstream project do?
+    validations:
+      required: true
+  - type: textarea
+    id: why_needed
+    attributes:
+      label: Why is this needed?
+      description: Why doesn't an existing container image work? (stale, doesn't exist, wrong arch, etc.)
+    validations:
+      required: true
+  - type: input
+    id: upstream_license
+    attributes:
+      label: Upstream license
+      description: SPDX identifier (MIT, Apache-2.0, GPL-3.0, etc.) — CI will verify
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-flight checks
+      options:
+        - label: I checked Docker Hub and GHCR for existing images
+          required: true

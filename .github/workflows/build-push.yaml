@@ -120,8 +120,14 @@ jobs:
 
       - name: Wait for healthy
         run: |
+          env_opts=""
+          if [ -f "${{ matrix.image.dir }}/test/env" ]; then
+            while IFS='=' read -r key value; do
+              [ -n "$key" ] && env_opts="$env_opts -e $key=$value"
+            done < "${{ matrix.image.dir }}/test/env"
+          fi
           docker run -d --name ci-test -p ${{ matrix.image.port }}:${{ matrix.image.port }} \
-            ${{ matrix.image.name }}:ci-test
+            $env_opts ${{ matrix.image.name }}:ci-test
           for i in $(seq 1 30); do
             health=$(docker inspect --format='{{.State.Health.Status}}' ci-test 2>/dev/null || echo "")
             if [ "$health" = "healthy" ]; then

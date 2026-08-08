@@ -2,6 +2,16 @@
 
 This file is the canonical source of truth for AI agents working on this repo. Conventions documented here are authoritative; CONTRIBUTING.md summarizes them for humans.
 
+## Agent rules
+
+Before committing, pushing, or creating a pull request:
+
+1. **Present changes** — show the human what was changed and why
+2. **Present test output** — show `task lint`, `task scan`, and `task test` results
+3. **Wait for approval** — do not commit, push, or open a PR until the human says go
+
+These apply to every change, no exceptions.
+
 ## Architecture
 
 ### CI/CD pipeline
@@ -128,6 +138,25 @@ CI probes `https://api.github.com/repos/<owner>/<repo>/license` per image using 
 | MIT, BSD-2, BSD-3, Apache-2.0, ISC, MPL-2.0 | Pass |
 | GPL-2.0, GPL-3.0, AGPL-3.0 | Block build |
 | None (unlicensed) | Warn, continue |
+
+### Local lint and scan (mandatory before PR)
+
+Before opening a PR, run these locally. Failure here means CI will fail.
+
+```sh
+task lint    # hadolint + shellcheck + yamllint
+task scan    # trivy CVE scan (HIGH + CRITICAL)
+task test    # builds + healthcheck + smoke test (per image)
+```
+
+Target a single image with `--`:
+
+```sh
+task scan -- obs-mcp
+task test -- obs-mcp
+```
+
+See `task --list` for all targets. The Taskfile auto-discovers images — adding a new image requires zero Taskfile changes.
 
 ## How to add a new image
 
